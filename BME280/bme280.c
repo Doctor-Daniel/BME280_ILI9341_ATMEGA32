@@ -162,10 +162,11 @@ void bme280_set_config(uint8_t t_sb, uint8_t filter, uint8_t spi3w_en)
 	
 }
 	
-void bme280_measure(int32_t * T, int32_t * p, int32_t * h, float *alt)		// wersja na wskaznikach,
+void bme280_measure(double * T, double * p, double * h, float *alt)		// wersja na wskaznikach,
 {
 	uint8_t rejestry[8];
-	int32_t temp_raw, pres_raw, hum_raw, var1, var2, t_fine, p_temp;
+	int32_t temp_raw, pres_raw, hum_raw, t_fine, p_fine;
+	double var1, var2;
 	
 	bme280_readRegisters(BME280_PRES_REG, rejestry, 8);	// odczyt danych z rejestrow ze wskazaniami z czujnika ( 0xF7 - 0xFE )
 	
@@ -174,64 +175,43 @@ void bme280_measure(int32_t * T, int32_t * p, int32_t * h, float *alt)		// wersj
 	hum_raw = bme280_16bit_reg(rejestry[6], rejestry[7]);
 
 	// Obliczanie temperatury
-	var1 = ((((temp_raw >> 3) - ((int32_t)bme280_cal.dig_t1 << 1))) * ((int32_t)bme280_cal.dig_t2)) >> 11;
-	var2 = (((((temp_raw >> 4) - ((int32_t)bme280_cal.dig_t1)) * ((temp_raw >> 4) - ((int32_t)bme280_cal.dig_t1))) >> 12) * ((int32_t)bme280_cal.dig_t3)) >> 14;
-	t_fine = var1 + var2;
-	*T = (t_fine * 5 + 128) >> 8;
+	var1 = (((double) temp_raw)/16384.0 - ((double)bme280_cal.dig_t1)/1024.0) * ((double)bme280_cal.dig_t2);
+	var2 = ((((double)temp_raw)/131072.0 - ((double)bme280_cal.dig_t1)/8192.0) * (((double)temp_raw)/131072.0 - ((double)bme280_cal.dig_t1)/8192.0)) * ((double)bme280_cal.dig_t3);
+	t_fine = (int32_t)(var1 + var2);
+	*T = (var1+var2) / 5120.0;
 
 	// Obliczanie cisnienia
-	var1 = (((int32_t)t_fine) >> 1) - (int32_t)64000;
-	var2 = (((var1 >> 2) * (var1 >> 2)) >> 11) * ((int32_t)bme280_cal.dig_p6);
-	var2 = var2 + ((var1 * ((int32_t)bme280_cal.dig_p5)) << 1);
-	var2 = (var2 >> 2) + (((int32_t)bme280_cal.dig_p4) << 16);
-	var1 = (((bme280_cal.dig_p3 * (((var1 >> 2) * (var1 >> 2)) >> 13)) >> 3) + ((((int32_t)bme280_cal.dig_p2) * var1) >> 1)) >> 18;
-	var1 = ((((32768 + var1)) * ((int32_t)bme280_cal.dig_p1)) >> 15);
-
-//	if (var1 == 0)
-//	{
-//		*p = 0;
-//	} 
-	p_temp = (((uint32_t)(((int32_t)1048576) - pres_raw) - (var2 >> 12))) * 3125;
-	if (p_temp < 0x80000000) 
-	{
-		p_temp = (p_temp << 1) / ((uint32_t)var1);
-	} 
-	else 
-	{
-		p_temp = (p_temp / (uint32_t)var1) * 2;
+	var1 = 0;
+	var2 = 0;
+	var1 = ((double)t_fine/2.0) - 64000.0;
+	var2 = var1 * var1 * ((double)bme280_cal.dig_p6) / 32768.0;
+	var2 = var2 + var1 * ((double)bme280_cal.dig_p5) * 2.0;
+	var2 = (var2/4.0) + (((double)bme280_cal.dig_p4) * 65536.0);
+	var1 = (((double)bme280_cal.dig_p3) * var1 * var1 / 524288.0 + ((double) bme280_cal.dig_p2) * var1) / 524288.0;
+	var1 = (1.0 + var1 / 32768.0) * ((double)bme280_cal.dig_p1);
+	if (var1 == 0.0)
+	{	
+		p_fine = 0;
 	}
-	var1 = (((int32_t)bme280_cal.dig_p9) * ((int32_t)(((p_temp>>3) * (p_temp >> 3)) >> 13))) >> 12;
-	var2 = (((int32_t)(p_temp >> 2)) * ((int32_t)bme280_cal.dig_p8)) >> 13;
-	p_temp = (uint32_t)((int32_t) p_temp + ((var1 + var2 + bme280_cal.dig_p7) >> 4));
+	p_fine = 1048576.0 - (double)pres_raw;
+	p_fine = (p_fine - (var2 / 4096.0)) * 6250.0 / var1;
+	var1 = ((double)bme280_cal.dig_p9) * p_fine * p_fine / 2147483648.0;
+	var2 = p_fine * ((double)bme280_cal.dig_p8) / 32768.0;
+	p_fine = p_fine + (var1 + var2 + ((double)bme280_cal.dig_p7)) / 16.0;
+	*p = p_fine/100;
 	
-	*p = ((p_temp)/100);
-
 	// obliczanie wilgotnosci
 	var1 = 0;
-	//if (hum_raw == 0x8000)			// z tym warunkiem nie odczytuje wilgotnosci.
-	//{
-		//*h = 1;
-	//}
-	//else
-	{
-		var1 = (t_fine - ((int32_t)76800));
-		var1 = (((((hum_raw << 14) - (((int32_t)bme280_cal.dig_h4) << 20) -
-		(((int32_t)bme280_cal.dig_h5) * var1)) + ((int32_t)16384)) >> 15) *
-		(((((((var1 * ((int32_t)bme280_cal.dig_h6)) >> 10) *
-		(((var1 * ((int32_t)bme280_cal.dig_h3)) >> 11) + ((int32_t)32768))) >> 10) +
-		((int32_t)2097152)) * ((int32_t)bme280_cal.dig_h2) + 8192) >> 14));
-		
-		var1 = (var1 - (((((var1 >> 15) * (var1 >> 15)) >> 7) * ((int32_t)bme280_cal.dig_h1)) >> 4));
-		
-		var1 = (var1 > 0) ? 2 : var1;
-		var1 = (var1 > 419430400) ? 419430400 : var1;
-		*h = -((var1>>12)/1024);
-	}
+	var1 = (((double)t_fine) - 76800.0);
+	var1 = (hum_raw - (((double)bme280_cal.dig_h4) * 64.0 + ((double)bme280_cal.dig_h5) / 16384.0 * var1)) * (((double)bme280_cal.dig_h2) / 65536.0 * (1.0 + ((double)bme280_cal.dig_h6) / 67108864.0 * var1 * (1.0 + ((double)bme280_cal.dig_h3) / 67108864.0 * var1)));
+	var1 = (var1 * (1.0 - ((double)bme280_cal.dig_h1) * var1 / 524288.0))/5;	// dzielone przez 5, bo inaczej wilgotnosc potrafi byc ok 125%
+	//if (var1 > 100.0)
+		//var1 = 100.0;
+	//else if (var1 < 0.0)
+		//var1 = 0.0;
+	*h = var1;
+	
 	// obliczanie wysokosci
-	float atmospheric = (p_temp/100.0);
-	*alt = 44330.0 * (1 - pow(atmospheric/1013.25, 0.1903));
-	
-	
-	
-	
+	float atmospheric = (p_fine/100.0);
+	*alt = 44330.0 * (1 - pow(atmospheric/1013.25, 0.1903));	
 }

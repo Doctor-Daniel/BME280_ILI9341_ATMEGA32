@@ -40,23 +40,20 @@ int main(void)
 	ILI9341_set_font((font_t) {font16x16, 16, 16, RED, WHITE});	
 
 	sei();		// wlaczenie przerwan
-	int32_t T;
-	int32_t p;
-	int32_t h;
+	double T;
+	double p;
+	double h;
 	float alt;
 	char buff[4];
 	while(1) 
 	{
 		bme280_measure(&T, &p, &h, &alt);	// wykonanie pomiaru z czujnika
-		dtostrf(T/100, 2, 0 , buff);	// wypisanie wartosci na LCD TFT ILI9341
+		dtostrf(T, 2, 2 , buff);	// wypisanie wartosci na LCD TFT ILI9341
 		ILI9341_txt(30, 70, buff);
-		dtostrf(T%100, 2, 0, buff);
-		ILI9341_txt(63, 70, ".");
-		ILI9341_txt(73, 70, buff);
 		ILI9341_txt(110, 70, "*C");
 		dtostrf(p, 4, 0, buff);
 		ILI9341_txt(30, 90, buff);
-		ILI9341_txt(100, 90, "hPa");
+		ILI9341_txt(99, 90, "hPa");
 		dtostrf(h, 4, 0, buff);
 		ILI9341_txt(30, 120, buff);
 		ILI9341_txt(99, 120, "%");
