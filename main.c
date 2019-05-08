@@ -54,13 +54,13 @@ int main(void)
 		dtostrf(p, 4, 0, buff);
 		ILI9341_txt(30, 90, buff);
 		ILI9341_txt(99, 90, "hPa");
-		dtostrf(h, 4, 0, buff);
+		dtostrf(h, 4, 2, buff);
 		ILI9341_txt(30, 120, buff);
-		ILI9341_txt(99, 120, "%");
+		//ILI9341_txt(99, 120, "%");
 		dtostrf(alt, 3, 0, buff);
 		ILI9341_txt(30, 150, buff);
 		ILI9341_txt(85, 150, "m n.p.m.");
-		_delay_ms(500);
+		_delay_ms(1000);
 	}
 
 	return 0;

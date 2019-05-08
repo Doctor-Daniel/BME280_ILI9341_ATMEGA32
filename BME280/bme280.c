@@ -17,6 +17,7 @@
 
 #define BME280_ID_REG		0xD0
 #define BME280_ID_VAL		0x60
+#define BME280_SOFT_RESET	0xE0
 
 #define BME280_CAL_REG_FIRST	0x88
 #define BME280_CAL_REG_LAST		0x9F
@@ -28,7 +29,7 @@
 #define BME280_CAL_REG_E7		0xE7
 #define BME280_CAL_DATA_SIZE	(BME280_CAL_REG_LAST + 2 - BME280_CAL_REG_FIRST) + (BME280_CAL_REG_E7 + 1 - BME280_CAL_REG_E1)
 #define BME280_CAL_DATA_SIZE_1	(BME280_CAL_REG_LAST + 1 - BME280_CAL_REG_FIRST)
-#define BME280_CAL_DATA_SIZE_2	(BME280_CAL_REG_E7 + 1 - BME280_CAL_REG_E1) 
+/*#define BME280_CAL_DATA_SIZE_2	(BME280_CAL_REG_E7 + 1 - BME280_CAL_REG_E1) */
 
 #define BME280_STATUS_REG	0xF3
 #define BME280_CONTROL_REG	0xF4
@@ -38,6 +39,7 @@
 #define BME280_PRES_REG		0xF7
 #define BME280_TEMP_REG		0xFA
 #define BME280_HUM_REG		0xFD
+
 #define BME280_RAWDATA_BYTES	8	// 3 bytes pressure, 3 bytes temperature, 2 bytes humidity
 
 #define I2C_WRITE	0x00
@@ -99,6 +101,7 @@ static union _bme280_cal_union
 		uint16_t dig_t1;	
 		int16_t  dig_t2;	
 		int16_t  dig_t3;
+		
 		uint16_t dig_p1;
 		int16_t  dig_p2;
 		int16_t  dig_p3;	
@@ -108,44 +111,52 @@ static union _bme280_cal_union
 		int16_t  dig_p7;
 		int16_t  dig_p8;	
 		int16_t  dig_p9;
+		
 		uint8_t  dig_h1;	
 		int16_t	 dig_h2;
 		uint8_t  dig_h3;	
 		int16_t  dig_h4;
 		int16_t  dig_h5;
-		int8_t   dig_h6;
+		int8_t  dig_h6;
 	};
-} bme280_cal;
+}bme280_cal; 
 
 
 static void bme280_getcalibration(void)				// Odczyt wspolczynnikow kalibracyjnych
 {
 	memset(bme280_cal.bytes, 0, sizeof(bme280_cal));
 	uint8_t rejestry[2];
+	uint8_t rejestr1[1];
 	bme280_readRegisters(BME280_CAL_REG_FIRST, bme280_cal.bytes, BME280_CAL_DATA_SIZE_1);	// te tak samo jak dla BME280 lub BMP180.
-	bme280_readRegister(BME280_CAL_REG_H1, &bme280_cal.dig_h1);
+	
+	bme280_readRegister(BME280_CAL_REG_H1, rejestr1);
+	bme280_cal.dig_h1 = ((uint8_t) rejestr1[0]);						// chyba cos nie tak z tymi wspolczynnikami h1, bo nie chce sie wilgotnosc wyswietlac prawidlowo
 	bme280_readRegisters(BME280_CAL_REG_E1, rejestry, 2);
-	bme280_cal.dig_h2 = ((int16_t) (rejestry[0]<<4) | (int16_t)(rejestry[1] & 0x0F));
-	bme280_readRegister(BME280_CAL_REG_E3, &bme280_cal.dig_h3);
+	bme280_cal.dig_h2 = (((int16_t) (rejestry[0]<<4)) | ((int16_t)(rejestry[1] & 0x0F)));
+	bme280_readRegister(BME280_CAL_REG_E3, rejestr1);
+	bme280_cal.dig_h3 = ((uint8_t) rejestr1[0]);
 	bme280_readRegisters(BME280_CAL_REG_E4, rejestry, 2);
-	bme280_cal.dig_h4 = ((int16_t) (rejestry[0] << 4) | (int16_t) (rejestry[1] & 0x0F));
+	bme280_cal.dig_h4 = (((int16_t) (rejestry[0] << 4)) | ((int16_t) (rejestry[1] & 0x0F)));
 	bme280_readRegisters(BME280_CAL_REG_E5, rejestry, 2);
-	bme280_cal.dig_h5 = ((int16_t) (rejestry[0] >> 4) | (int16_t) (rejestry[1] << 4));
-	bme280_readRegister(BME280_CAL_REG_E7, rejestry);
-	bme280_cal.dig_h6 = ((int8_t) (rejestry[0]));
+	bme280_cal.dig_h5 = (((int16_t) (rejestry[0] >> 4)) | ((int16_t) (rejestry[1] << 4)));
+	bme280_readRegister(BME280_CAL_REG_E7, rejestr1);
+	bme280_cal.dig_h6 = ((int8_t) rejestr1[0]);
 }
 
 void bme280_init(void)
 {
+	bme280_writeRegister(BME280_SOFT_RESET, 0xB6);
+	_delay_ms(500);
 	bme280_getcalibration();
-	bme280_set_config(0, 0, 0); // 0.5 ms delay(nieaktywny w forced mode), 1x filter, no 3-wire SPI
 	bme280_set_ctrl(1, 1, 1, 3); // T oversampling x1, P oversampling x1, H oversampling x1, forced mode (1)  
+	bme280_set_config(0, 0, 0); // 0.5 ms delay(nieaktywny w forced mode), 1x filter, no 3-wire SPI
+	_delay_ms(500);
 }
 
 uint8_t bme280_get_status(void)
 {
 	uint8_t data[1];
-	bme280_readRegister(BME280_STATUS_REG, data);
+	bme280_readRegister(BME280_STATUS_REG, data);	
 	return data[0];
 }
 
@@ -165,7 +176,7 @@ void bme280_set_config(uint8_t t_sb, uint8_t filter, uint8_t spi3w_en)
 void bme280_measure(double * T, double * p, double * h, float *alt)		// wersja na wskaznikach,
 {
 	uint8_t rejestry[8];
-	int32_t temp_raw, pres_raw, hum_raw, t_fine, p_fine;
+	volatile int32_t temp_raw, pres_raw, hum_raw, t_fine, p_fine;
 	double var1, var2;
 	
 	bme280_readRegisters(BME280_PRES_REG, rejestry, 8);	// odczyt danych z rejestrow ze wskazaniami z czujnika ( 0xF7 - 0xFE )
@@ -203,12 +214,14 @@ void bme280_measure(double * T, double * p, double * h, float *alt)		// wersja n
 	// obliczanie wilgotnosci
 	var1 = 0;
 	var1 = (((double)t_fine) - 76800.0);
-	var1 = (hum_raw - (((double)bme280_cal.dig_h4) * 64.0 + ((double)bme280_cal.dig_h5) / 16384.0 * var1)) * (((double)bme280_cal.dig_h2) / 65536.0 * (1.0 + ((double)bme280_cal.dig_h6) / 67108864.0 * var1 * (1.0 + ((double)bme280_cal.dig_h3) / 67108864.0 * var1)));
-	var1 = (var1 * (1.0 - ((double)bme280_cal.dig_h1) * var1 / 524288.0))/5;	// dzielone przez 5, bo inaczej wilgotnosc potrafi byc ok 125%
+	var1 = (hum_raw - (((double)bme280_cal.dig_h4) * 64.0 + ((double)bme280_cal.dig_h5) / 16384.0 * var1)) * 
+	(((double)bme280_cal.dig_h2) / 65536.0 * (1.0 + ((double)bme280_cal.dig_h6) / 67108864.0 * var1 * 
+	(1.0 + ((double)bme280_cal.dig_h3) / 67108864.0 * var1)));
+	var1 = var1 * (1.0 - ((double)bme280_cal.dig_h1) * var1 / 524288.0);	// dzielone przez 5, bo inaczej wilgotnosc potrafi byc ok 125%
 	//if (var1 > 100.0)
 		//var1 = 100.0;
 	//else if (var1 < 0.0)
-		//var1 = 0.0;
+	//var1 = 0.0;
 	*h = var1;
 	
 	// obliczanie wysokosci
