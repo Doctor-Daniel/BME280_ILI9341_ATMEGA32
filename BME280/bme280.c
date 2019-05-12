@@ -117,7 +117,7 @@ static union _bme280_cal_union
 		uint8_t  dig_h3;	
 		int16_t  dig_h4;
 		int16_t  dig_h5;
-		int8_t  dig_h6;
+		int8_t   dig_h6;
 	};
 }bme280_cal; 
 
@@ -126,21 +126,21 @@ static void bme280_getcalibration(void)				// Odczyt wspolczynnikow kalibracyjny
 {
 	memset(bme280_cal.bytes, 0, sizeof(bme280_cal));
 	uint8_t rejestry[2];
-	uint8_t rejestr1[1];
 	bme280_readRegisters(BME280_CAL_REG_FIRST, bme280_cal.bytes, BME280_CAL_DATA_SIZE_1);	// te tak samo jak dla BME280 lub BMP180.
 	
-	bme280_readRegister(BME280_CAL_REG_H1, rejestr1);
-	bme280_cal.dig_h1 = ((uint8_t) rejestr1[0]);						// chyba cos nie tak z tymi wspolczynnikami h1, bo nie chce sie wilgotnosc wyswietlac prawidlowo
+	bme280_readRegister(BME280_CAL_REG_H1, rejestry);
+	bme280_cal.dig_h1 = ((uint8_t) rejestry[0]);						// chyba cos nie tak z tymi wspolczynnikami h1, bo nie chce sie wilgotnosc wyswietlac prawidlowo
 	bme280_readRegisters(BME280_CAL_REG_E1, rejestry, 2);
 	bme280_cal.dig_h2 = (((int16_t) (rejestry[0]<<4)) | ((int16_t)(rejestry[1] & 0x0F)));
-	bme280_readRegister(BME280_CAL_REG_E3, rejestr1);
-	bme280_cal.dig_h3 = ((uint8_t) rejestr1[0]);
+	bme280_readRegister(BME280_CAL_REG_E3, rejestry);
+	bme280_cal.dig_h3 = ((uint8_t) rejestry[0] >> 4);
 	bme280_readRegisters(BME280_CAL_REG_E4, rejestry, 2);
 	bme280_cal.dig_h4 = (((int16_t) (rejestry[0] << 4)) | ((int16_t) (rejestry[1] & 0x0F)));
 	bme280_readRegisters(BME280_CAL_REG_E5, rejestry, 2);
 	bme280_cal.dig_h5 = (((int16_t) (rejestry[0] >> 4)) | ((int16_t) (rejestry[1] << 4)));
-	bme280_readRegister(BME280_CAL_REG_E7, rejestr1);
-	bme280_cal.dig_h6 = ((int8_t) rejestr1[0]);
+	bme280_readRegister(BME280_CAL_REG_E7, rejestry);
+	bme280_cal.dig_h6 = ((int8_t) rejestry[0]);
+
 }
 
 void bme280_init(void)
@@ -161,10 +161,9 @@ uint8_t bme280_get_status(void)
 }
 
 void bme280_set_ctrl(uint8_t osrs_t, uint8_t osrs_p, uint8_t osrs_h, uint8_t mode)
-{
+{	
+	bme280_writeRegister(BME280_CONTROL_HUM, (osrs_h & 0x7));
 	bme280_writeRegister(BME280_CONTROL_REG, ((osrs_t & 0x7) << 5) | ((osrs_p & 0x7) << 2) | (mode & 0x3));
-	//bme280_writeRegister(BME280_CONTROL_HUM, (osrs_h & 0x7));
-	bme280_writeRegister(BME280_CONTROL_HUM, 0x01);
 }
 
 void bme280_set_config(uint8_t t_sb, uint8_t filter, uint8_t spi3w_en)
@@ -172,13 +171,13 @@ void bme280_set_config(uint8_t t_sb, uint8_t filter, uint8_t spi3w_en)
 	bme280_writeRegister(BME280_CONFIG_REG, ((t_sb & 0x7) << 5) | ((filter & 0x7) << 2) | (spi3w_en & 1));
 	
 }
-	
+
+
 void bme280_measure(double * T, double * p, double * h, float *alt)		// wersja na wskaznikach,
 {
 	uint8_t rejestry[8];
-	volatile int32_t temp_raw, pres_raw, hum_raw, t_fine, p_fine;
+	int32_t temp_raw, pres_raw, hum_raw, t_fine, p_fine;
 	double var1, var2;
-	
 	bme280_readRegisters(BME280_PRES_REG, rejestry, 8);	// odczyt danych z rejestrow ze wskazaniami z czujnika ( 0xF7 - 0xFE )
 	
 	pres_raw = bme280_20bit_reg(rejestry[0], rejestry[1], rejestry[2]);
@@ -210,21 +209,22 @@ void bme280_measure(double * T, double * p, double * h, float *alt)		// wersja n
 	var2 = p_fine * ((double)bme280_cal.dig_p8) / 32768.0;
 	p_fine = p_fine + (var1 + var2 + ((double)bme280_cal.dig_p7)) / 16.0;
 	*p = p_fine/100;
-	
+
 	// obliczanie wilgotnosci
 	var1 = 0;
 	var1 = (((double)t_fine) - 76800.0);
 	var1 = (hum_raw - (((double)bme280_cal.dig_h4) * 64.0 + ((double)bme280_cal.dig_h5) / 16384.0 * var1)) * 
 	(((double)bme280_cal.dig_h2) / 65536.0 * (1.0 + ((double)bme280_cal.dig_h6) / 67108864.0 * var1 * 
-	(1.0 + ((double)bme280_cal.dig_h3) / 67108864.0 * var1)));
-	var1 = var1 * (1.0 - ((double)bme280_cal.dig_h1) * var1 / 524288.0);	// dzielone przez 5, bo inaczej wilgotnosc potrafi byc ok 125%
+	(1.0 + ((double)bme280_cal.dig_h3) / 67108864.0 * var1)));				// parametr h3 = 0 i to raczej nie jest prawidlowa wartosc. Ale jak sie koncowy wynik podzieli przez 6 to wychodzi prawidlowa wartosc wilgotnosci. 
+	var1 = var1 * (1.0 - ((double)bme280_cal.dig_h1) * var1 / 524288.0);
 	//if (var1 > 100.0)
 		//var1 = 100.0;
 	//else if (var1 < 0.0)
-	//var1 = 0.0;
-	*h = var1;
-	
+		//var1 = 0.0;
+	*h = var1/6;
+
 	// obliczanie wysokosci
 	float atmospheric = (p_fine/100.0);
 	*alt = 44330.0 * (1 - pow(atmospheric/1013.25, 0.1903));	
+
 }
